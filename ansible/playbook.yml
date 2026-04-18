@@ -1,0 +1,66 @@
+---
+- name: Tempa — Bootstrap VPS to production-ready
+  hosts: "{{ target | default('all') }}"
+  become: true
+  gather_facts: true
+
+  vars_prompt:
+    - name: ssh_port
+      prompt: "SSH Port?"
+      default: "22"
+      private: false
+
+    - name: install_git
+      prompt: "Install Git? (y/n)"
+      default: "y"
+      private: false
+
+    - name: docker_mode
+      prompt: |
+        Choose Docker mode:
+          1. Native Docker + Caddy (reverse proxy + auto HTTPS)
+          2. Dokploy
+          Enter number
+      default: "2"
+      private: false
+
+    - name: setup_firewall
+      prompt: "Setup UFW firewall? (y/n)"
+      default: "y"
+      private: false
+
+    - name: setup_fail2ban
+      prompt: "Setup Fail2ban? (y/n)"
+      default: "y"
+      private: false
+
+    - name: setup_swap
+      prompt: "Setup 1GB Swap? (y/n)"
+      default: "y"
+      private: false
+
+    - name: install_umami
+      prompt: "Install Umami analytics? (y/n)"
+      default: "n"
+      private: false
+
+  roles:
+    - role: bootstrap
+      when: run_bootstrap | default(false)
+
+    - role: common
+
+    - role: security
+      when: setup_firewall == 'y' or setup_fail2ban == 'y' or setup_swap == 'y'
+
+    - role: docker
+      when: docker_mode in ['1', '2']
+
+    - role: caddy
+      when: docker_mode == '1'
+
+    - role: dokploy
+      when: docker_mode == '2'
+
+    - role: umami
+      when: install_umami == 'y'

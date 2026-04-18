@@ -1,0 +1,17 @@
+---
+# security/defaults/main.yml
+setup_firewall: "y"
+setup_fail2ban: "y"
+setup_swap: "y"
+
+ufw_allowed_ports:
+  - "{{ ssh_port | string }}"
+  - "80"
+  - "443"
+
+fail2ban_maxretry: 5
+fail2ban_bantime: 3600
+fail2ban_findtime: 600
+
+swap_size_mb: 1024
+swap_swappiness: 10

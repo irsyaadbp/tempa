@@ -1,0 +1,8 @@
+install_git: "y"
+ssh_port: "22"
+docker_mode: "2"
+setup_firewall: "y"
+setup_fail2ban: "y"
+setup_swap: "y"
+install_umami: "y"
+umami_db_password: "secure_production_password_change_me"

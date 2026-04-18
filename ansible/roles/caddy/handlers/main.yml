@@ -1,0 +1,7 @@
+---
+# caddy/handlers/main.yml
+
+- name: Reload caddy
+  ansible.builtin.systemd:
+    name: caddy
+    state: reloaded

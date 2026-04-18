@@ -1,0 +1,7 @@
+install_git: "n"
+ssh_port: "22"
+docker_mode: "2"
+setup_firewall: "y"
+setup_fail2ban: "n"
+setup_swap: "n"
+install_umami: "n"

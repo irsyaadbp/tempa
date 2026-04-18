@@ -1,0 +1,29 @@
+---
+# common/tasks/main.yml
+
+- name: Update apt cache and upgrade packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+    cache_valid_time: 3600
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+
+- name: Install Git
+  ansible.builtin.apt:
+    name: git
+    state: present
+  when: install_git == 'y'
+
+- name: Set timezone to UTC
+  community.general.timezone:
+    name: UTC
+
+- name: Ensure /opt/tempa exists (for future service deployments)
+  ansible.builtin.file:
+    path: /opt/tempa
+    state: directory
+    mode: "0755"

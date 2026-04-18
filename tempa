@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -e
+
+# Automatically resolve the directory where this script actually lives
+TEMPA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Switch to the project directory so all relative paths (ansible/, presets/) work globally
+cd "$TEMPA_DIR"
+
+# Tempa CLI Wrapper
+
+print_usage() {
+    echo "🚀 Tempa CLI"
+    echo ""
+    echo "Usage:"
+    echo "  ./tempa <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  install               Install the CLI globally on the Main Server"
+    echo "  setup                 Install Ansible dependencies on the Main Server"
+    echo "  ping                  Test SSH connectivity to inventory hosts"
+    echo "  deploy                Run deployment interactively"
+    echo "  deploy --host <IP>    Deploy explicitly to a single IP address (bypasses inventory)"
+    echo "  deploy --self         Provision the Main Server itself (Dokploy, Docker, etc.)"
+    echo "  deploy --password <P> Connect via VPS password and auto-setup SSH Keys"
+    echo "  deploy --user <name>  Override SSH user (default: root)"
+    echo "  rotate-ssh            Manually rotate SSH keys on target(s)"
+    echo "  rotate-ssh --interval <1d|1w|1m|1y> Schedule automated SSH rotation via Cron"
+    echo "  help                  Show this help message"
+    echo ""
+}
+
+case "$1" in
+    install)
+        echo "🔑 Installing Tempa globally to /usr/local/bin/tempa..."
+        sudo ln -sf "$TEMPA_DIR/tempa" /usr/local/bin/tempa
+        echo "✅ Done! You can now run 'tempa' from any directory without './'."
+        ;;
+    setup)
+        ./scripts/install-ansible.sh
+        ;;
+    ping|deploy|rotate-ssh)
+        CMD="$1"
+        shift
+        
+        TARGET=""
+        PRESET=""
+        HOST=""
+        SSH_USER="root"
+        SSH_PASS=""
+        IS_SELF=false
+
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --target) TARGET="$2"; shift 2 ;;
+                --preset) PRESET="$2"; shift 2 ;;
+                --host)   HOST="$2"; shift 2 ;;
+                --user)   SSH_USER="$2"; shift 2 ;;
+                --password) SSH_PASS="$2"; shift 2 ;;
+                --interval) INTERVAL="$2"; shift 2 ;;
+                --self)   IS_SELF=true; shift ;;
+                *) shift ;;
+            esac
+        done
+
+        # 1. Resolve Inventory
+        INVENTORY_ARGS=""
+        
+        if [ "$IS_SELF" = true ]; then
+            INVENTORY_ARGS="-i localhost, -e ansible_connection=local"
+        elif [ -n "$TARGET" ]; then
+            # If they explicitly want to target a group, use the inventory file
+            INVENTORY_ARGS="-i $TEMPA_DIR/ansible/inventory.ini"
+        elif [ -n "$HOST" ]; then
+            # If they explicitly passed a host IP via flag
+            INVENTORY_ARGS="-i $HOST,"
+        else
+            # Default interactive mode: always ask for the IP
+            echo ""
+            read -p "🎯 Enter target server IP (or press Enter to deploy to all inventory, or type 'self'): " PROMPTED_HOST
+            if [ "$PROMPTED_HOST" = "self" ]; then
+                INVENTORY_ARGS="-i localhost, -e ansible_connection=local"
+            elif [ -n "$PROMPTED_HOST" ]; then
+                INVENTORY_ARGS="-i $PROMPTED_HOST,"
+                read -p "👤 Enter SSH Username (default: root): " PROMPTED_USER
+                SSH_USER="${PROMPTED_USER:-root}"
+            else
+                INVENTORY_ARGS="-i $TEMPA_DIR/ansible/inventory.ini"
+            fi
+        fi
+
+        # 2. Key Generation & Base Ansible Command
+        ANSIBLE_CMD=(ansible-playbook $INVENTORY_ARGS -u "$SSH_USER")
+        
+        if [ -n "$SSH_PASS" ]; then
+            # Generate SSH key if it doesn't exist so we can push it automatically
+            if [ ! -f "$HOME/.ssh/id_ed25519" ]; then
+                echo "🔑 Generating new local SSH identity (~/.ssh/id_ed25519)..."
+                mkdir -p "$HOME/.ssh"
+                ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -q
+            fi
+            # Pass the password directly to Ansible
+            ANSIBLE_CMD+=("-e" "ansible_ssh_pass=$SSH_PASS")
+            # We also pass variable to trigger the bootstrap role
+            ANSIBLE_CMD+=("-e" "run_bootstrap=true")
+        fi
+
+        if [ "$CMD" == "ping" ]; then
+            ansible all $INVENTORY_ARGS -u "$SSH_USER" -m ping
+            exit 0
+        fi
+
+        if [ "$CMD" == "rotate-ssh" ]; then
+            if [ -n "$INTERVAL" ]; then
+                # Handle Cron Scheduling
+                CRON_CMD="$TEMPA_DIR/tempa rotate-ssh --target \"$TARGET\" --host \"$HOST\""
+                
+                # Convert interval to cron format
+                case "$INTERVAL" in
+                    1d) CRON_TIME="0 0 * * *" ;;
+                    1w) CRON_TIME="0 0 * * 0" ;;
+                    1m) CRON_TIME="0 0 1 * *" ;;
+                    1y) CRON_TIME="0 0 1 1 *" ;;
+                    *) echo "Error: Invalid interval. Use 1d, 1w, 1m, or 1y"; exit 1 ;;
+                esac
+
+                echo "🕒 Scheduling SSH Rotation for interval: $INTERVAL"
+                (crontab -l 2>/dev/null | grep -v "tempa rotate-ssh"; echo "$CRON_TIME $CRON_CMD >> /var/log/tempa-rotate.log 2>&1") | crontab -
+                echo "✅ Cron schedule has been updated successfully."
+                exit 0
+            fi
+
+            # Execute manual rotation
+            echo "🔄 Initiating SSH Key Rotation..."
+            
+            KEYS_DIR="$HOME/.ssh/tempa_keys"
+            mkdir -p "$KEYS_DIR"
+            
+            NEW_KEY="$KEYS_DIR/rotate_$(date +%Y%m%d_%H%M%S)"
+            CURRENT_KEY="$HOME/.ssh/id_ed25519"
+            
+            if [ ! -f "$CURRENT_KEY" ]; then
+                echo "❌ Error: Current SSH key ($CURRENT_KEY) not found. Run a deploy first."
+                exit 1
+            fi
+
+            # 1. Generate new key
+            ssh-keygen -t ed25519 -f "$NEW_KEY" -N "" -q
+            
+            NEW_PUB_KEY=$(cat "${NEW_KEY}.pub")
+            OLD_PUB_KEY=$(cat "${CURRENT_KEY}.pub")
+
+            # 2. Run Rotation Playbook
+            ansible-playbook $INVENTORY_ARGS -u "$SSH_USER" "$TEMPA_DIR/ansible/rotate-ssh.yml" \
+                -e "new_public_key='$NEW_PUB_KEY'" \
+                -e "old_public_key='$OLD_PUB_KEY'" \
+                -e "new_private_key_path='$NEW_KEY'"
+
+            # 3. If success, swap keys locally
+            echo "✅ Rotation successful on target(s). Updating local keys..."
+            cp "$CURRENT_KEY" "$KEYS_DIR/backup_$(date +%Y%m%d_%H%M%S)"
+            cp "$NEW_KEY" "$CURRENT_KEY"
+            cp "${NEW_KEY}.pub" "${CURRENT_KEY}.pub"
+            chmod 600 "$CURRENT_KEY"
+            
+            echo "🎉 SSH Key rotation complete!"
+            exit 0
+        else
+            # 3. Add Normal Playbook and Extra Vars (for deploy)
+            ANSIBLE_CMD+=("$TEMPA_DIR/ansible/playbook.yml")
+            if [ -n "$PRESET" ]; then
+                if [ ! -f "$TEMPA_DIR/presets/${PRESET}.yml" ]; then
+                    echo "❌ Error: Preset file presets/${PRESET}.yml not found."
+                    exit 1
+                fi
+                ANSIBLE_CMD+=("-e" "@$TEMPA_DIR/presets/${PRESET}.yml")
+            fi
+        fi
+
+        if [ -n "$TARGET" ]; then
+            ANSIBLE_CMD+=("-l" "$TARGET")
+        fi
+
+        # Execute
+        "${ANSIBLE_CMD[@]}"
+        ;;
+    help|*)
+        print_usage
+        ;;
+esac

@@ -1,0 +1,40 @@
+---
+# dokploy/tasks/main.yml
+
+- name: Check if Dokploy is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/dokploy
+  register: dokploy_bin
+
+- name: Download and run Dokploy installer
+  ansible.builtin.shell:
+    cmd: curl -sSL https://dokploy.com/install.sh | bash
+  args:
+    executable: /bin/bash
+  when: not dokploy_bin.stat.exists
+  register: dokploy_install
+  changed_when: dokploy_install.rc == 0
+
+- name: Show Dokploy install output
+  ansible.builtin.debug:
+    msg: "{{ dokploy_install.stdout_lines | default(['Dokploy already installed']) }}"
+
+- name: Allow port 3000 through UFW for Dokploy dashboard
+  community.general.ufw:
+    rule: allow
+    port: "3000"
+    proto: tcp
+  when: setup_firewall == 'y'
+
+- name: Wait for Dokploy to become available
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:3000"
+    status_code: [200, 302, 301]
+  register: dokploy_check
+  retries: 10
+  delay: 10
+  ignore_errors: true
+
+- name: Dokploy access info
+  ansible.builtin.debug:
+    msg: "Dokploy dashboard available at http://{{ ansible_host }}:3000"

@@ -1,0 +1,115 @@
+---
+# security/tasks/main.yml
+
+# ── SSH ──────────────────────────────────────────────────────────────────────
+
+- name: Set SSH Port
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?Port '
+    line: "Port {{ ssh_port }}"
+    state: present
+  notify: Restart sshd
+
+# ── UFW ──────────────────────────────────────────────────────────────────────
+
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  when: setup_firewall == 'y'
+
+- name: Reset UFW to defaults
+  community.general.ufw:
+    state: reset
+  when: setup_firewall == 'y'
+
+- name: Allow configured ports through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ ufw_allowed_ports }}"
+  when: setup_firewall == 'y'
+
+- name: Set UFW default incoming policy to deny
+  community.general.ufw:
+    default: deny
+    direction: incoming
+  when: setup_firewall == 'y'
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+  when: setup_firewall == 'y'
+
+# ── Fail2ban ─────────────────────────────────────────────────────────────────
+
+- name: Install Fail2ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+  when: setup_fail2ban == 'y'
+
+- name: Deploy Fail2ban jail.local configuration
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+  when: setup_fail2ban == 'y'
+
+- name: Enable and start Fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    enabled: true
+    state: started
+  when: setup_fail2ban == 'y'
+
+# ── Swap ─────────────────────────────────────────────────────────────────────
+
+- name: Check if swapfile already exists
+  ansible.builtin.stat:
+    path: /swapfile
+  register: swapfile_stat
+  when: setup_swap == 'y'
+
+- name: Create swapfile
+  ansible.builtin.command:
+    cmd: "fallocate -l {{ swap_size_mb }}M /swapfile"
+  when: setup_swap == 'y' and not swapfile_stat.stat.exists
+
+- name: Set swapfile permissions
+  ansible.builtin.file:
+    path: /swapfile
+    owner: root
+    group: root
+    mode: "0600"
+  when: setup_swap == 'y' and not swapfile_stat.stat.exists
+
+- name: Format swapfile
+  ansible.builtin.command:
+    cmd: mkswap /swapfile
+  when: setup_swap == 'y' and not swapfile_stat.stat.exists
+
+- name: Enable swapfile
+  ansible.builtin.command:
+    cmd: swapon /swapfile
+  when: setup_swap == 'y' and not swapfile_stat.stat.exists
+
+- name: Add swap to fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: "/swapfile none swap sw 0 0"
+    state: present
+  when: setup_swap == 'y'
+
+- name: Set swappiness
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "{{ swap_swappiness }}"
+    state: present
+    reload: true
+  when: setup_swap == 'y'

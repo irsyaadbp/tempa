@@ -1,0 +1,14 @@
+---
+# common/defaults/main.yml
+install_git: "n"
+base_packages:
+  - curl
+  - unzip
+  - wget
+  - htop
+  - nano
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - software-properties-common
+  - apt-transport-https

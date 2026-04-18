@@ -1,0 +1,8 @@
+---
+# umami/defaults/main.yml
+umami_dir: /opt/tempa/umami
+umami_port: 3001
+umami_db_password: "changeme_use_vault_in_production"
+umami_db_name: umami
+umami_db_user: umami
+umami_app_secret: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"

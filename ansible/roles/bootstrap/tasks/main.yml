@@ -1,0 +1,34 @@
+---
+# bootstrap/tasks/main.yml
+
+- name: Retrieve local public key
+  ansible.builtin.command: cat ~/.ssh/id_ed25519.pub
+  delegate_to: localhost
+  register: local_pub_key
+  changed_when: false
+
+- name: Inject local public key into authorized_keys 
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user | default('root') }}"
+    state: present
+    key: "{{ local_pub_key.stdout }}"
+
+- name: Disable SSH Password Authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+    state: present
+
+- name: Disable Root Login via Password (if not root user)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin prohibit-password'
+    state: present
+  when: ansible_user | default('root') != 'root'
+
+- name: Restart sshd
+  ansible.builtin.systemd:
+    name: ssh
+    state: restarted

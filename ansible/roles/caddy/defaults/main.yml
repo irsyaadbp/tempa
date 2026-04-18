@@ -1,0 +1,4 @@
+---
+# caddy/defaults/main.yml
+caddy_config_dir: /etc/caddy
+caddy_log_dir: /var/log/caddy

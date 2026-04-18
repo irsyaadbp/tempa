@@ -1,0 +1,21 @@
+# Managed by Tempa
+# Caddy reverse proxy — auto HTTPS included
+#
+# Uncomment and configure your sites below.
+# Caddy will automatically provision SSL certificates via Let's Encrypt.
+#
+# Example:
+#   example.com {
+#       reverse_proxy localhost:3000
+#   }
+#
+#   api.example.com {
+#       reverse_proxy localhost:4000
+#   }
+#
+# Docs: https://caddyserver.com/docs/caddyfile
+
+# Default: redirect HTTP to HTTPS for all requests
+:80 {
+    redir https://{host}{uri} permanent
+}

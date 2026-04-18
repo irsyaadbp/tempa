@@ -1,0 +1,51 @@
+---
+# caddy/tasks/main.yml
+
+- name: Add Caddy GPG key
+  ansible.builtin.apt_key:
+    url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+    state: present
+
+- name: Add Caddy apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [trusted=yes] https://apt.fury.io/caddy/ /"
+    state: present
+    update_cache: true
+
+- name: Install Caddy
+  ansible.builtin.apt:
+    name: caddy
+    state: present
+
+- name: Ensure Caddy log directory exists
+  ansible.builtin.file:
+    path: "{{ caddy_log_dir }}"
+    state: directory
+    owner: caddy
+    group: caddy
+    mode: "0755"
+
+- name: Deploy starter Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: "{{ caddy_config_dir }}/Caddyfile"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Reload caddy
+
+- name: Enable and start Caddy service
+  ansible.builtin.systemd:
+    name: caddy
+    enabled: true
+    state: started
+
+- name: Verify Caddy is running
+  ansible.builtin.command: caddy version
+  register: caddy_version
+  changed_when: false
+
+- name: Show Caddy version
+  ansible.builtin.debug:
+    msg: "{{ caddy_version.stdout }}"

@@ -1,0 +1,30 @@
+---
+- name: Rotate SSH Keys
+  hosts: "{{ target | default('all') }}"
+  become: true
+  gather_facts: false
+
+  vars:
+    # These should be passed as extra vars from the CLI
+    # new_public_key: "ssh-ed25519 ..."
+    # old_public_key: "ssh-ed25519 ..."
+
+  tasks:
+    - name: Ensure new public key is in authorized_keys
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user | default('root') }}"
+        state: present
+        key: "{{ new_public_key }}"
+
+    - name: Verify connection with new key
+      ansible.builtin.wait_for_connection:
+        timeout: 30
+      vars:
+        ansible_ssh_private_key_file: "{{ new_private_key_path }}"
+
+    - name: Remove old public key from authorized_keys
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user | default('root') }}"
+        state: absent
+        key: "{{ old_public_key }}"
+      when: old_public_key is defined and old_public_key != ""

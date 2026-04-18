@@ -1,0 +1,43 @@
+---
+# umami/tasks/main.yml
+
+- name: Create Umami directory
+  ansible.builtin.file:
+    path: "{{ umami_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy Umami docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ umami_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Pull Umami Docker images
+  ansible.builtin.command:
+    cmd: docker compose pull
+    chdir: "{{ umami_dir }}"
+  register: umami_pull
+  changed_when: "'Pull complete' in umami_pull.stdout"
+
+- name: Start Umami stack
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ umami_dir }}"
+  register: umami_start
+  changed_when: umami_start.rc == 0
+
+- name: Allow Umami port through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ umami_port | string }}"
+    proto: tcp
+  when: setup_firewall == 'y'
+
+- name: Umami access info
+  ansible.builtin.debug:
+    msg: "Umami analytics available at http://{{ ansible_host }}:{{ umami_port }} (default login: admin / umami)"
