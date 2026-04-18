@@ -191,6 +191,14 @@ staging-server ansible_host=203.0.113.8
 
 By default, running `tempa deploy` attempts to configure **all** servers in the file, running actions on them simultaneously in parallel.
 
+### Listing All Servers
+
+To see a beautiful graph of all groups and servers currently defined in your inventory:
+
+```bash
+tempa list
+```
+
 ### Targeting Specific Servers (`--target`)
 
 If you want to deploy to only a specific group (or a specific single server), use the `--target` flag:
